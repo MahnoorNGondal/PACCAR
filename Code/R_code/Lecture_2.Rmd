@@ -1,0 +1,56 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+
+# Introduction
+In this lecture, we'll cover some fundamental concepts in R programming, including lists, functions, and libraries.
+
+## Lists
+A list is a versatile data structure in R that can contain elements of different types.
+
+```{r}
+# Creating a list
+my_list <- list(name = "John", age = 25, is_student = TRUE)
+my_list
+```
+
+Practice Questions:
+
+Create a list named fruit_list containing three fruits of your choice.
+Access the second element of the fruit_list.
+
+# Creating a simple function
+```{r}
+add_numbers <- function(x, y) {
+  result <- x + y
+  return(result)
+}
+
+# Using the function
+result_sum <- add_numbers(10, 5)
+result_sum
+```
+
+Practice Questions:
+
+Write a function named multiply_numbers that multiplies two given numbers.
+Use the multiply_numbers function to find the product of 7 and 3.
+
+# Installing and loading a library
+```{r}
+install.packages("ggplot2")
+library(ggplot2)
+
+# Using a function from the library
+ggplot(data = iris, aes(x = Sepal.Length, y = Sepal.Width)) +
+  geom_point()
+
+```
+
+
+Install and load the dplyr library.
+Use the head function from the dplyr library to display the first 5 rows of the mtcars dataset.

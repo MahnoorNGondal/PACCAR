@@ -1,0 +1,220 @@
+---
+title: "Lecture 3 Intro to scRNA-seq"
+author:
+- name: Mahnoor Gondal
+  affiliation: &id2  Department of Computational Medicine and Bioinformatics, Michigan Medicine, Ann Arbor, MI, 48109-2029, USA
+- name: Neil Zhao
+  affiliation: &id Program in Biomedical Sciences, University of Michigan-Ann Arbor, 1415 Washington Heights, Ann Arbor, MI, 48109-2029, USA
+output: html_notebook
+    self_contained: TRUE
+    code_download: TRUE
+    code_folding: show
+    theme: cerulean  
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+abstract: |
+  In this workflow, we'll walkthrough an introduction to using Seurat for analyzing single-cell RNA-seq data from Gao et al (2021). 
+  
+vignette: |
+  %\VignetteEncoding{UTF-8}
+  %\VignetteIndexEntry{Lecture 3 Intro to scRNA-seq}
+  %\VignetteEngine{knitr::rmarkdown}
+editor_options: 
+  chunk_output_type: inline
+---
+
+# Bioconductor/R Packages {.unnumbered}
+
+To install the packages, you can:
+
+-   Install the latest releases individually through ***R***. This version of the tutorial uses `R version 4.3.2`.
+-   Get the latest version of Bioconductor and CRAN packages by starting ***R*** and entering these commands:
+
+```{r biostyle template, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+# Bioconductor-themed vignette template 
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install(c("rmarkdown", "Seurat", "tidyverse", "ggpubr", "RColorBrewer"))
+
+```
+
+```{r load libraries, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(Seurat)
+library(ggpubr)
+library(RColorBrewer)
+```
+
+# Reading the scRNA-seq data
+```{r Load the data}
+# Load Tumor datafiles for barcodes metadata, features (genes), and matrix
+##----------------------------------------------------------------
+# change location to your own path
+# Example: "/mctp/share/users/gondal/01_scHLA/01_input/breast_Guo/Breast/Cells.csv"
+cell <- read.csv("Data_Gao2021_Breast/Breast/Cells.csv", sep = ",")
+meta_data <- read.csv("Data_Gao2021_Breast/Meta-data.csv", sep = ",")
+
+cell <- merge(cell, meta_data, by = "sample", all.x = TRUE)
+rownames(cell) <- cell$cell_name
+
+gene <- read.csv("Data_Gao2021_Breast/Breast/Genes.txt", 
+                 sep = "\t", header = FALSE)
+
+MTX <- Matrix::readMM("Data_Gao2021_Breast/Breast/Exp_data_UMIcounts.mtx")
+colnames(MTX) <- cell$cell_name
+row.names(MTX) <- gene$V1
+
+str(MTX)
+
+```
+
+Now, let's read these counts and metadata into a Seurat object: 
+```{r Create SeuratObject}
+seurat_obj <- CreateSeuratObject(counts = MTX)
+                                 # min.cells = 3, min.features = 200
+                                 # project =
+seurat_obj <- AddMetaData(seurat_obj, cell)
+
+seurat_obj
+table(seurat_obj$cell_type)
+seurat_obj@meta.data$cell_type <- ifelse(
+  is.na(seurat_obj@meta.data$cell_type) | seurat_obj@meta.data$cell_type == "", 
+  "Unknown", seurat_obj@meta.data$cell_type)
+
+```
+
+# Data Quality Checks
+## Mitochondrial Genes
+```{r}
+# Calculate %MT reads 
+seurat_obj <- PercentageFeatureSet(seurat_obj, "^MT-", col.name = "percent.mito")
+view(seurat_obj@meta.data)
+
+feats <- c("nFeature_RNA", "nCount_RNA", "percent.mito")
+
+VlnPlot(seurat_obj, features = feats, pt.size = 0.05, ncol = 3) +
+    NoLegend()
+ggsave("vln2.png", width = 14, height=10)
+
+```
+
+## Metric Correlations
+
+We should also see a strong correspondence between the total number of molecules 
+and the number of genes detected in high quality cells. 
+
+```{r correlations}
+# FeatureScatter is typically used to visualize feature-feature relationships, but can be used
+# for anything calculated by the object, i.e. columns in object metadata, PC scores etc. 
+FeatureScatter(seurat_obj, "nCount_RNA", "nFeature_RNA",  pt.size = 0.5) + 
+  geom_smooth(method = "lm")
+ggsave("FS2.png", width = 14, height=10)
+```
+
+## Filtering
+Subset the object to only keep high-quality cells: 
+
+```{r Filtering}
+# Script it in one comprehension
+seurat_obj <- subset(seurat_obj, 
+                     subset = nFeature_RNA > 2000 & nCount_RNA > 6000 & 
+                       percent.mito < 10)
+
+```
+
+#Miscellaneous
+## Post-filtered Plots
+```{r}
+# plot filtered data
+feats <- c("percent.mito",  "nFeature_RNA", "nCount_RNA" )
+VlnPlot(seurat_obj,  features = feats, pt.size =0.5, ncol = 4) +
+    NoLegend() + 
+  theme(plot.title=element_text(hjust=0.5, vjust=0.1 )) +  
+  theme(plot.title = element_text(size=15)) +theme(legend.position = "none", 
+               legend.text = element_text(size = 15)) + 
+  theme(legend.title = element_text(size=15)) +
+  theme(legend.text = element_text(size=15))  + 
+  theme(text = element_text(size = 15))  + 
+  theme(axis.text.x = element_text( colour = "black")) +
+  theme(axis.text.y = element_text( colour = "black"))
+
+# change location to your own path
+ggsave("vln1afterfilter3.png", width = 10, height=4)
+```
+
+```{r}
+FeatureScatter(seurat_obj, "nCount_RNA", "nFeature_RNA",  pt.size = 0.5) + 
+  geom_smooth(method = "lm")
+```
+
+## Plots from quality analysis
+```{r}
+# Create a custom a color palette manually
+# Alternatively, use pre-defined palettes from packages like viridis, ggsci, etc.
+mycolors = c(brewer.pal(name="Paired", n = 12), brewer.pal(name="Set2", n = 12), brewer.pal(name="RdBu", n = 2), brewer.pal(name="Set1", n = 12), brewer.pal(name="Accent", n = 8), brewer.pal(name="Accent", n = 8))
+
+seurat_obj_md <- seurat_obj@meta.data
+
+# Collection of plots 
+seurat_obj_md %>% 
+  	ggplot(aes(x=cell_type, fill=cell_type)) + 
+  	geom_bar() +
+  	theme_classic() +
+  	theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  	theme(plot.title = element_text(hjust=0.5, face="bold")) +
+  	ggtitle("NCells")  +
+  scale_fill_manual(values = c(mycolors))
+
+ggsave("CELLs.png", width =5, height=3.5)
+
+seurat_obj_md %>% 
+  	ggplot(aes(color=cell_type, x=nCount_RNA, fill= cell_type)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+  	geom_vline(xintercept = 500)  +
+  scale_fill_manual(values = c(mycolors))
+
+ ggsave("nCount_RNA.png", width =5, height=3.5)
+
+
+seurat_obj_md %>% 
+  	ggplot(aes(color=cell_type, x=nFeature_RNA, fill= cell_type)) + 
+  	geom_density(alpha = 0.2) + 
+  	theme_classic() +
+  	scale_x_log10() + 
+  	geom_vline(xintercept = 300)  +
+  scale_fill_manual(values = c(mycolors))
+
+ ggsave("nFeature_RNA.png", width =5, height=3.5)
+
+
+seurat_obj_md %>% 
+  	ggplot(aes(color=cell_type, x=percent.mito, fill=cell_type)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = 20)  +
+  scale_fill_manual(values = c(mycolors))
+
+ ggsave("percent.mito.png", width =5, height=3.5)
+
+
+VlnPlot(seurat_obj_md, group.by = "cell_type", features = feats, pt.size =0, ncol = 3) +
+    NoLegend()
+
+ggsave("vln1afterfilter2.png", width =5, height=3.5)
+
+```
+
+# Save your progress
+```{r}
+saveRDS(seurat_obj, "/mctp/share/users/gondal/01_scHLA/03_output/PACCAR/version_01_21_01_24/seurat_obj.RDS")
+```
+
+

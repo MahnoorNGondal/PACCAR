@@ -1,0 +1,63 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+
+# Introduction
+In this lecture, we'll explore the basics of using R as a calculator. R is not just a programming language; it can also serve as a powerful calculator for performing mathematical operations.
+
+## Arithmetic Operations
+R supports standard arithmetic operations, including addition, subtraction, multiplication, and division.
+
+### Addition
+```{r}
+# Addition
+result_addition <- 5 + 3
+result_addition
+
+```
+
+# Subtraction
+```{r}
+result_subtraction <- 10 - 4
+result_subtraction
+
+```
+
+# Multiplication
+```{r}
+result_multiplication <- 6 * 7
+result_multiplication
+
+```
+
+# Division
+```{r}
+result_division <- 15 / 3
+result_division
+```
+
+Exponentiation and Square Root
+
+# Exponentiation
+```{r}
+result_exponentiation <- 2^3
+result_exponentiation
+```
+
+# Square Root
+```{r}
+result_square_root <- sqrt(25)
+result_square_root
+```
+
+```{r}
+
+
+
+```
+
+

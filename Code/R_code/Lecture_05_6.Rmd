@@ -23,6 +23,13 @@ library(RColorBrewer)
 
 install.packages("dplyr")
 library(dplyr)
+
+install.packages("devtools")
+library(devtools)
+
+install_github("navinlabcode/copykat")
+library(copykat)
+
 ```
 
 
@@ -140,5 +147,35 @@ ggsave("/mctp/share/users/gondal/01_scHLA/03_output/PACCAR/version_01_21_01_24/D
 
 
 
+
+```
+
+
+## running copykat
+```{r}
+#change 3 places!
+
+#exp.rawdata <- GetAssayData(seurat_D4_T_2, slot = "counts")
+
+exp.rawdata <- as.matrix(seurat_obj@assays$RNA@counts)
+dim(exp.rawdata)
+
+normal <- subset(x = seurat_obj, subset = cell_type == "Epithelial")
+
+vector_n <- c(colnames(normal))
+
+copykat.test <- copykat(rawmat=exp.rawdata, id.type="S", ngene.chr=5, win.size=25, KS.cut=0.1, sam.name="test", distance="euclidean",  norm.cell.names=vector_n, output.seg="FALSE", plot.genes="TRUE", genome="hg20",n.cores=15)
+
+pred.test <- data.frame(copykat.test$prediction)
+table(pred.test$copykat.pred)
+
+seurat_obj@meta.data$copycat.pred <- NULL
+seurat_obj@meta.data$copycat.pred <- ifelse(colnames(seurat_obj) %in% pred.test$cell.names, pred.test$copykat.pred, seurat_obj@meta.data$copycat.pred )
+table(seurat_obj$copycat.pred) 
+
+  
+saveRDS(seurat_obj,"/mctp/share/users/gondal/01_scHLA/03_output/PACCAR/version_01_21_01_24/seurat_obj2.RDS")
+  
+  
 
 ```

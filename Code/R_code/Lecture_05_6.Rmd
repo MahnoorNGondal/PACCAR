@@ -1,0 +1,144 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r}
+install.packages("Seurat")
+library(Seurat)
+
+install.packages("data.table")
+library(data.table)
+
+install.packages("ggplot2")
+library(ggplot2)
+
+install.packages("ggpubr")
+library(ggpubr)
+
+install.packages("RColorBrewer")
+library(RColorBrewer)
+
+install.packages("dplyr")
+library(dplyr)
+```
+
+
+
+## Reading the scRNA-seq data
+```{r}
+# read the RDS data that you worked on previously
+seurat_obj <- readRDS("/mctp/share/users/gondal/01_scHLA/03_output/PACCAR/version_01_21_01_24/seurat_obj.RDS")
+```
+
+
+## normalization - 1 log transformation
+```{r}
+seurat_analysis <- function(seurat.object) {
+  
+  seurat.object <- NormalizeData(seurat.object)
+  
+  seurat.object <- FindVariableFeatures(seurat.object)
+  
+  seurat.object <- ScaleData(seurat.object, features = rownames(seurat.object))
+  
+  seurat.object <- RunPCA(seurat.object)
+  
+  ElbowPlot(seurat.object)
+  
+  seurat.object <- FindNeighbors(seurat.object, dims = 1:20) #cryptic cluster with 10
+  
+  seurat.object <- FindClusters(seurat.object)
+  seurat.object <- RunUMAP(seurat.object, dims = 1:20)
+
+}
+
+seurat_obj <- seurat_analysis(seurat_obj)
+
+saveRDS(seurat_obj, "/mctp/share/users/gondal/01_scHLA/03_output/PACCAR/version_01_21_01_24/seurat_obj.RDS")
+
+```
+```{r}
+DimPlot(seurat_obj, reduction = "umap", label = TRUE, pt.size = 0.4, repel = TRUE) + labs(title = bquote('Clusters'))  + theme(plot.title=element_text(hjust=0.5, vjust=0.1 )) +  theme(plot.title = element_text(size=14)) +
+  labs(color = "Groups")  +theme(legend.position = "right", 
+               legend.text = element_text(size = 10))
+
+ggsave("/mctp/share/users/gondal/01_scHLA/03_output/PACCAR/version_01_21_01_24/umap2.png", width =7, height=5)
+
+
+DimPlot(seurat_obj, reduction = "umap",group.by = "cell_type", label = TRUE, pt.size = 0.4, repel = TRUE) + labs(title = bquote('Clusters'))  + theme(plot.title=element_text(hjust=0.5, vjust=0.1 )) +  theme(plot.title = element_text(size=14)) +
+  labs(color = "Groups")  +theme(legend.position = "right", 
+               legend.text = element_text(size = 10))
+
+ggsave("/mctp/share/users/gondal/01_scHLA/03_output/PACCAR/version_01_21_01_24/umap2cell_type.png", width =7, height=5)
+
+```
+
+
+## Findallmarkers
+```{r}
+plan("multiprocess", workers = 20) #sequential
+plan()
+options(future.globals.maxSize = 20000 * 1024^2)
+
+seurat_obj <- SetIdent(seurat_obj, value = seurat_obj@meta.data$seurat_clusters)
+                                                                      
+seurat_obj_DE <- FindAllMarkers(seurat_obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+
+plan("sequential")
+
+
+top10 <- seurat_obj_DE %>% group_by(cluster) %>% top_n(n = 15, wt = avg_log2FC)
+DoHeatmap(subset(seurat_obj, downsample = 1000), features = as.character(top10$gene) , size = 4,
+    angle = 90) + scale_fill_gradientn(colors = c("blue", "white", "red"))
+
+ggsave("/mctp/share/users/gondal/01_scHLA/03_output/PACCAR/version_01_21_01_24/heatmapclustertop_prostate.png", width = 10, height= 20)
+```
+
+
+
+## before removing T and fibroblast cells
+```{r}
+#Luminal <- c("KLK3", "KLK2", "NKX3-1",  "ACP3",  "MSMB", "AR", "PSCA", "LMO7", "ALDH1A3",  "NEFH")
+Basal <- c("KRT5", "TP63",  "KRT17", "TIMP3",  "ITGA2", "ITGA6", "CAV1", "CAV2", "RGSS",  "DST", "MYLK", "NOTCH4", "DKK3", "SNAI2")
+Luminal_progenitor <- c("KLK5", "KRT15", "ANXA1", "MGP", "KIT", "SOX10", "TNFRSF11A",  "MACK1", "SFRP1",    "SLP1", "RARRES1", "RCAN1", "DUSP1", "KRT23", "RPS18", "RPS2", "GNB2L1", "RPS13")
+Mature_Luminal <- c(  "JUND",  "RUNX1", "ATF3", "FOXA1", "PGR", "VMP1", "STC2", "XBP1", "HSPB8", "TFF1", "BATF",  "AREG",  "GATA3", "TBX3", "RBP1", "NTN4", "CLU", "AGR2", "SLC40A1")
+Epithelial <- c("EPCAM", "KRT8", "AR")
+Neuroendocrine <- c("CHGB", "ENO2",  "LMO3")
+Other_Epithelial <- c("SCGB3A1",  "PIGR", "FCGBP",  "LYPD3", "HOXB13", "SPDEF", "PRAC1", "KRT7",  "WFDC2", "RARRES1",  "GSTP1", "KRT18", "KRT8")
+Fibroblast <-  c( "APOD", "FBLN1", "PTGDS", "DCN", "LUM", "IGF1", "ENG", "LYZ", "CD14", "FCGR3A", "PECAM1",  "CD8A", "FOXP3", "CD19", "CD79A", "PDGFRA", "PDGFRB", "ITGAX",  "CX3CR1")
+SMC <- c("TPM2",  "RGS5", "MT1A", "IFI27", "MYH11", "VWF", "CD34", "MCAM" )
+Club <- c("S100P", "LCN2",  "GPX2",  "HPGD")
+Ciliated <- c("CETN2", "ZMYND10")
+Mast <- c("KIT", "TPSB2", "TPSAB1", "CPA3", "MS4A2")
+Myeloid <- c("CD4", "AIF1", "CD68", "FCN1")
+B_cells <- c("CD79A", "MS4A1", "GNLY", "PRF1")
+NK_cells <- c("KLRF1", "NKG7", "KLRD1")
+T_cells <- c("CD3D", "CD3G", "CD3E",  "IL7R", "CCL4", "GZMK", "CD2", "CD52", "GZMA", "CD160", "CD4" , "CD69", "GZMH", "GZMB")
+
+Plasma <- c("JCHAIN", "IGKC", "CD55", "IGHM")
+
+
+features_M <- list("Luminal_progenitor" = c(Luminal_progenitor), "Mature_Luminal" = c(Mature_Luminal), "Basal" = c(Basal),"Plasma" = c(Plasma), "T_cells" = c(T_cells), "Fibroblast" = c(Fibroblast) , "SMC" = c(SMC))
+
+seurat_obj <- SetIdent(seurat_obj, value = seurat_obj@meta.data$seurat_clusters)
+
+# Taubula_spaiens_RDS_log_Mammary@active.ident <- factor(Taubula_spaiens_RDS_log_Mammary@active.ident,
+#                                                            levels=c("Basal" , "Mature_Luminal_3" , "Mature_Luminal_2",  "Mature_Luminal_1",    "Luminal_progenitor_3" ,  "Luminal_progenitor_2" ,"Luminal_progenitor_1"))
+
+
+DotPlot(seurat_obj, features=features_M, dot.scale = 8)+RotatedAxis()+theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14))  + xlab(NULL) +  ylab(NULL)  + 
+    theme(axis.text.x = element_text(angle=90)) + guides(size = guide_legend(title="Percent\nExpressed")) +
+guides(color = guide_colorbar( title = 'Average\nExpression',  legend.title=element_text(size=4)))   + theme(axis.title.x = element_blank(),
+          axis.title.y = element_blank()) +theme(axis.text.x=element_text(size=14))+theme(axis.text.y=element_text(size=14)) +theme(legend.title = element_text(size=14))+
+  theme(legend.text = element_text(size=14)) + 
+       theme(axis.text.x=element_text(size=15, angle=90,hjust=0.95,vjust=0.2))
+
+ggsave("/mctp/share/users/gondal/01_scHLA/03_output/PACCAR/version_01_21_01_24/DOTPLOT_markers_cell7.png", width =20, height=5)
+
+
+
+
+```

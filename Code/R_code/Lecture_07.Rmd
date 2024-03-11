@@ -1,0 +1,269 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r}
+install.packages("Seurat")
+library(Seurat)
+
+install.packages("data.table")
+library(data.table)
+
+install.packages("ggplot2")
+library(ggplot2)
+
+install.packages("ggpubr")
+library(ggpubr)
+
+install.packages("RColorBrewer")
+library(RColorBrewer)
+
+install.packages("dplyr")
+library(dplyr)
+
+install.packages("devtools")
+library(devtools)
+
+install_github("navinlabcode/copykat")
+library(copykat)
+
+################################################################
+
+
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("limma")
+library(limma)
+
+
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("clusterProfiler")
+library(clusterProfiler)
+
+
+BiocManager::install(organism, character.only = TRUE)
+library(organism, character.only = TRUE)
+```
+
+
+
+## Reading the scRNA-seq data
+```{r}
+# read the RDS data that you worked on previously
+seurat_obj <- readRDS("/mctp/share/users/gondal/01_scHLA/03_output/PACCAR/version_01_21_01_24/seurat_obj.RDS")
+```
+
+
+```{r}
+
+DimPlot(seurat_obj, reduction = "umap",group.by = "cell_type", label = TRUE, pt.size = 0.4, repel = TRUE) + labs(title = bquote('Clusters'))  + theme(plot.title=element_text(hjust=0.5, vjust=0.1 )) +  theme(plot.title = element_text(size=14)) +
+  labs(color = "Groups")  +theme(legend.position = "right", 
+               legend.text = element_text(size = 10))
+
+ggsave("/mctp/share/users/gondal/01_scHLA/03_output/PACCAR/version_01_21_01_24/umap2cell_type.png", width =7, height=5)
+
+```
+
+## pseudobulking
+```{r}
+
+## subset to epithelial and malignant cells only
+
+interested_celltypes <- c("Epithelial", "Malignant")
+seurat_obj_epimal <- subset(seurat_obj, subset = cell_type %in% interested_celltypes)
+
+seurat_obj_epimal$sample_ID_ctc <- paste0(seurat_obj_epimal$patient, "kkk", 
+                                                         seurat_obj_epimal$cell_type)
+
+####
+
+group_high <- filter(seurat_obj_epimal@meta.data, cell_type == "Malignant" )
+group_high <- group_high$sample_ID_ctc
+
+seurat_obj_epimal <- SetIdent(seurat_obj_epimal, value = seurat_obj_epimal@meta.data$sample_ID_ctc)
+
+
+down.sample_data_split <- SplitObject(seurat_obj_epimal, split.by = "ident")
+
+expr_raw <- {}
+expr <- {}
+for (i in 1:6) {
+  expr_raw[[i]] <- GetAssayData(object = down.sample_data_split[[i]], assay.type = "RNA", slot = "counts")
+  expr[[i]] <- rowSums(as(Class = 'matrix', object = expr_raw[[i]]))
+  
+  #limma_obj[[i]]@assays$RNA@counts <- rowSums(down.sample_data_split[[i]]@assays$RNA@counts)
+}
+
+expr_df <- as.data.frame(t(as.data.frame(do.call(rbind, expr))))
+
+
+```
+## limma
+```{r}
+
+patient_name <- as.data.frame(seurat_obj_epimal@meta.data)
+patient_name <- unique(patient_name$sample_ID_ctc)
+
+colnames(expr_df) <- patient_name
+
+
+snames <- data.frame(colnames(expr_df))
+
+colnames(snames) <- "sample_ID"
+
+
+snames$type <- ifelse(snames$sample_ID %in% group_high, 
+                                             "Malignant", 
+                                             "Epithelial" )
+
+
+
+# snames <- snames[with(snames, order(type, decreasing = T)),]
+
+snames_type = snames[,-1]
+snames_factor = factor(snames_type)
+design2 <- model.matrix(~snames_factor)
+design2 <- as.data.frame(design2)
+design2$snames_factorLow_cor2 <- ifelse(design2$snames_factorMalignant == 1, 0,
+                                       design2$snames_factorMalignant)
+design2$snames_factorLow_cor2 <- ifelse(design2$snames_factorMalignant == 0, 1,
+                                       design2$snames_factorLow_cor2)
+design2$snames_factorMalignant <- NULL
+design2 <- as.matrix(design2)
+
+
+
+d0 <- DGEList(expr_df)
+d0 <- calcNormFactors(d0)
+cutoff <- 5
+drop <- which(apply(cpm(d0), 1, max) < cutoff)
+d <- d0[-drop,]
+dim(d)
+
+y <- voom(d, design2, plot = T)
+
+
+fit2 <- lmFit(y, design2) # change expr_df to y for voom
+fit2 <- eBayes(fit2)
+top.table <- topTable(fit2, sort.by = "P", n = Inf)
+top.table$gene_symbol <- rownames(top.table)
+volcanoplot(fit2, coef = 2)
+
+DEGs <- top.table 
+
+
+
+DEGs$diffexpressed <- "NO"
+DEGs$diffexpressed[DEGs$logFC > 1 & DEGs$P.Value < 0.05] <- "UP"
+DEGs$diffexpressed[DEGs$logFC < -1 & DEGs$P.Value < 0.05] <- "DOWN"
+DEGs$delabel <- NA
+DEGs$delabel[DEGs$diffexpressed != "NO"] <- DEGs$gene_symbol[DEGs$diffexpressed != "NO"]
+
+```
+
+
+## volcano plot
+```{r}
+
+
+
+DEGs$label <- ifelse(DEGs$gene_symbol %in% c(GENEI3_res_imp_sel, Known_features, features_MHC_1_and_2_classical), DEGs$gene_symbol, NA)
+    EnhancedVolcano(DEGs,
+    lab = DEGs$label,
+    x = 'logFC',
+    y = 'P.Value', FCcutoff = 0.5, pCutoff = 0.5,
+    title = 'Malignant vs Epithelial across samples',
+    pointSize = 1.0,
+    labSize = 4.0, drawConnectors = TRUE,boxedLabels = F, max.overlaps = 50,
+        legendPosition = "top", subtitle = NULL,
+                gridlines.major = TRUE, gridlines.minor = F, widthConnectors = 0.1, colConnectors = 'black',
+                endsConnectors= 'last')
+    
+      EnhancedVolcano(DEGs,
+    lab = DEGs$label,
+    x = 'logFC',
+    y = 'P.Value',
+    title = 'Malignant vs Epithelial samples',
+    subtitle = NULL,
+    pCutoff = 0.05,
+    FCcutoff = 0.5,
+    pointSize = 0.5,
+    labSize = 2,
+    labCol = 'black',
+    labFace = 'bold',
+    boxedLabels = TRUE,
+    colAlpha = 4/5,
+    legendPosition = 'none',
+    legendLabSize = 2,
+    legendIconSize = 2,
+    drawConnectors = TRUE,
+    widthConnectors = 0.2,
+    colConnectors = 'black',
+    gridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+  ggsave("/mctp/share/users/gondal/01_scHLA/03_output/3_prostate/version_28_03_03_24/volcano6cutoffwithvoom_counts.png",  width = 8, height=6)
+  
+
+```
+
+```{r}
+
+
+all_genes = as.character(t(DEGs$gene_symbol))
+  all_genes <- ensembldb::select(EnsDb.Hsapiens.v86, keys= all_genes, keytype = "SYMBOL", columns = c("SYMBOL","GENEID"))
+  colnames(all_genes) <- c("gene_symbol", "GENEID")
+  
+  res <- left_join(DEGs, all_genes, by = "gene_symbol")
+  
+  res1 <- res[grep("ENS", res$GENEID), ]
+  
+  
+# we want the log2 fold change 
+organism = "org.Hs.eg.db"
+# BiocManager::install(organism, character.only = TRUE)
+library(organism, character.only = TRUE)
+original_gene_list <- res1$logFC
+
+# name the vector
+names(original_gene_list) <- res1$GENEID
+
+# omit any NA values 
+gene_list<-na.omit(original_gene_list)
+
+# sort the list in decreasing order (required for clusterProfiler)
+gene_list = sort(gene_list, decreasing = TRUE)
+
+gse <- gseGO(geneList=gene_list,
+             ont ="ALL",
+             keyType = "ENSEMBL",
+             nPerm = 10000,
+             minGSSize = 3,
+             maxGSSize = 3000,
+             pvalueCutoff = 0.05,
+             verbose = TRUE,
+             OrgDb = organism,
+             pAdjustMethod = "none")
+
+
+kk2_tab <- gse@result
+rownames(kk2_tab) <- NULL
+
+kk2_tab$activitystatus <- ifelse(kk2_tab$NES > 0, "Activated", "Suppressed")
+
+top10 <- kk2_tab %>% group_by(activitystatus) %>% top_n(n = 40, wt = NES)
+
+top10 <- top10[with(top10, order( NES,  decreasing = F)),]
+
+ggbarplot(top10,  y="NES" , x="Description", fill = "NES", color = "NES") + ylab("Normalized enrichment score\nMal vs Epi") + xlab(NULL) + coord_flip()+  guides(fill=guide_legend(title="pval_status"))   + theme(legend.position = "none")
+
+ggsave("/mctp/share/users/gondal/01_scHLA/03_output/3_prostate/version_28_03_03_24/limma_GO2cutoffPACCAR.png", width = 15, height=15)
+
+```
+

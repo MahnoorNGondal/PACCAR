@@ -46,7 +46,7 @@ if (!require("BiocManager", quietly = TRUE))
 BiocManager::install("clusterProfiler")
 library(clusterProfiler)
 
-
+organism = "org.Hs.eg.db"
 BiocManager::install(organism, character.only = TRUE)
 library(organism, character.only = TRUE)
 ```

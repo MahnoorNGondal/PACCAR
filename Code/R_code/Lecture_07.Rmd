@@ -173,7 +173,7 @@ DEGs$delabel[DEGs$diffexpressed != "NO"] <- DEGs$gene_symbol[DEGs$diffexpressed 
 
 
 
-DEGs$label <- ifelse(DEGs$gene_symbol %in% c(GENEI3_res_imp_sel, Known_features, features_MHC_1_and_2_classical), DEGs$gene_symbol, NA)
+DEGs$label <- ifelse(DEGs$gene_symbol %in% c("PIGR", "HLA-A", "PGR"), DEGs$gene_symbol, NA)
     EnhancedVolcano(DEGs,
     lab = DEGs$label,
     x = 'logFC',

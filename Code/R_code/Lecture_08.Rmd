@@ -1,0 +1,217 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r}
+install.packages("Seurat")
+library(Seurat)
+
+install.packages("data.table")
+library(data.table)
+
+install.packages("ggplot2")
+library(ggplot2)
+
+install.packages("ggpubr")
+library(ggpubr)
+
+install.packages("RColorBrewer")
+library(RColorBrewer)
+
+install.packages("dplyr")
+library(dplyr)
+
+install.packages("devtools")
+library(devtools)
+
+install_github("navinlabcode/copykat")
+library(copykat)
+
+################################################################
+
+
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("limma")
+library(limma)
+
+
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("clusterProfiler")
+library(clusterProfiler)
+
+organism = "org.Hs.eg.db"
+BiocManager::install(organism, character.only = TRUE)
+library(organism, character.only = TRUE)
+```
+
+
+
+## Reading the scRNA-seq data
+```{r}
+# read the RDS data that you worked on previously
+seurat_obj_Guo <- readRDS("/mctp/share/users/gondal/01_scHLA/03_output/PACCAR/version_01_21_01_24/seurat_obj.RDS")
+
+seurat_obj_Wu <- readRDS("/mctp/share/users/gondal/01_scHLA/03_output/Curatedcanceratlas/version_01_09_15_23/breast_Wu.RDS")
+```
+
+
+# reading the cluster data
+```{r}
+
+Sample_merge <- merge(seurat_obj_Guo, y = c(seurat_obj_Wu), 
+                      project = "Breast")
+
+Sample_merge$sample <- rownames(Sample_merge@meta.data)
+```
+
+
+
+```{r}
+Sample_merge[["percent.mt"]] <- PercentageFeatureSet(Sample_merge, pattern = "^mt-")
+
+VlnPlot(Sample_merge, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+FeatureScatter(Sample_merge, feature1 = "nCount_RNA", feature2 = "nFeature_RNA") + 
+  geom_smooth(method = "lm")
+
+Sample_merge_filtered <- subset(Sample_merge, subset = nCount_RNA > 800 &
+                                  nFeature_RNA > 500 &
+                                  percent.mt < 10)
+ggsave("/mctp/share/users/gondal/01_scHLA/03_output/PACCAR/version_01_21_01_24/FS.png", width = 8, height = 5)
+```
+
+## normalization - 1 log transformation
+```{r}
+Sample_merge_filtered <- NormalizeData(Sample_merge_filtered)
+
+Sample_merge_filtered <- FindVariableFeatures(Sample_merge_filtered)
+
+Sample_merge_filtered <- ScaleData(Sample_merge_filtered)
+
+Sample_merge_filtered <- RunPCA(Sample_merge_filtered)
+
+ElbowPlot(Sample_merge_filtered)
+
+Sample_merge_filtered <- FindNeighbors(Sample_merge_filtered, dims = 1:20)
+
+Sample_merge_filtered <- FindClusters(Sample_merge_filtered)
+Sample_merge_filtered <- RunUMAP(Sample_merge_filtered, dims = 1:20)
+
+```
+
+
+```{r}
+seurat_analysis <- function(seurat.object) {
+  
+  seurat.object <- NormalizeData(seurat.object)
+  
+  seurat.object <- FindVariableFeatures(seurat.object)
+  
+  seurat.object <- ScaleData(seurat.object, features = rownames(seurat.object))
+  
+  seurat.object <- RunPCA(seurat.object)
+  
+  ElbowPlot(seurat.object)
+  
+  seurat.object <- FindNeighbors(seurat.object, dims = 1:20) #cryptic cluster with 10
+  
+  seurat.object <- FindClusters(seurat.object)
+  seurat.object <- RunUMAP(seurat.object, dims = 1:20)
+
+}
+
+Sample_merge <- seurat_analysis(Sample_merge)
+```
+
+
+## adding meta and cluster data for log transform results
+```{r}
+
+p0 <- DimPlot(Sample_merge, reduction = "umap", group.by = "patient" , label = T)+ labs(title = bquote('37,276 cells before filtering\nbefore integration'))
+p0
+p1 <- DimPlot(Sample_merge_filtered, reduction = "umap", group.by = "patient" , label = T)+ labs(title = bquote('15,877 cells after filtering\nbefore integration'))
+p1
+
+g <- grid.arrange(p0, p1, ncol = 2)
+
+ggsave("/mctp/share/users/gondal/01_scHLA/03_output/GVHD_dongchang/version_1_26_7_22/dimplot.png", g, width = 10, height = 5)
+```
+
+```{r}
+obj.list <- SplitObject(Sample_merge_filtered, split.by = "patient")
+
+obj.list <- lapply(X = obj.list, FUN = function(x) {
+    x <- NormalizeData(x, verbose = FALSE)
+    x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 2000)
+})
+```
+
+
+```{r}
+features <- SelectIntegrationFeatures(object.list = obj.list)
+
+obj.list <- lapply(X = obj.list, FUN = function(x) {
+    x <- ScaleData(x, features = features, verbose = FALSE)
+    x <- RunPCA(x, features = features, verbose = FALSE)
+})
+
+
+anchors <- FindIntegrationAnchors(object.list = obj.list, anchor.features = features )
+
+seurat.integrated <- IntegrateData(anchorset = anchors)
+```
+
+
+```{r}
+seurat.integrated <- ScaleData(object = seurat.integrated)
+
+seurat.integrated <- RunPCA(object = seurat.integrated)
+
+seurat.integrated <- RunUMAP(object = seurat.integrated, dims = 1:50)
+
+
+p2 <- DimPlot(seurat.integrated, reduction = "umap", group.by = "patient" , label = T)+ labs(title = bquote('15,877 cells after filtering\nafter integration'))
+p2
+
+g <- grid.arrange(p1, p2, ncol = 2)
+
+
+
+ggsave("/mctp/share/users/gondal/01_scHLA/03_output/GVHD_dongchang/version_1_26_7_22/dimplotid.png", p5, width = 10, height = 5)
+```
+
+
+```{r}
+DefaultAssay(seurat.integrated) <- "integrated"
+
+seurat.integrated <- ScaleData(seurat.integrated, verbose = FALSE)
+seurat.integrated <- RunPCA(seurat.integrated, npcs = 30, verbose = FALSE)
+seurat.integrated <- RunUMAP(seurat.integrated, reduction = "pca", dims = 1:30)
+seurat.integrated <- FindNeighbors(seurat.integrated, reduction = "pca", dims = 1:30)
+seurat.integrated <- FindClusters(seurat.integrated, resolution = 0.5)
+
+
+p3 <- DimPlot(seurat.integrated, reduction = "umap", label = TRUE, group.by = "ID") + labs(title = bquote('15,877 cells after filtering\nafter integration'))
+p4 <- DimPlot(seurat.integrated, reduction = "umap", label = TRUE, repel = TRUE) + labs(title = bquote('15,877 cells un-annotated'))
+
+p5 <- DimPlot(seurat.integrated, reduction = "umap", split.by =  "ID" )+ labs(title = bquote('After integration all cells exist in all IDs'))
+p5
+
+g <- grid.arrange(p3, p4, p5, ncol = 2, nrow = 2)
+
+ggsave("/mctp/share/users/gondal/01_scHLA/03_output/GVHD_dongchang/version_1_26_7_22/dimploti.png", g, width = 10, height = 5)
+```
+
+
+```{r}
+FindAllMarkers_integrated <- FindAllMarkers(seurat.integrated, 
+               logfc.threshold = 0.25,
+               min.pct = 0.1, only.pos = TRUE, assay = "RNA")
+```
+
